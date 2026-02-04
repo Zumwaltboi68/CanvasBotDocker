@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: canvas-quiz-bot
+    name: canvas
     env: docker
     plan: starter  # Change to 'standard' or 'pro' for better performance
     region: oregon  # Change to your preferred region
