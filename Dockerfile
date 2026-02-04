@@ -124,10 +124,19 @@ async function getBrowser() {
         '--disable-accelerated-2d-canvas',
         '--disable-gpu',
         '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-extensions'
-      ]
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-hang-monitor',
+        '--disable-ipc-flooding-protection',
+        '--disable-popup-blocking',
+        '--disable-prompt-on-repost',
+        '--ignore-certificate-errors',
+        '--window-size=1280,800'
+      ],
+      ignoreHTTPSErrors: true,
+      defaultViewport: null
     };
 
     // Use system Chromium
@@ -138,8 +147,16 @@ async function getBrowser() {
     try {
       browserInstance = await puppeteer.launch(launchOptions);
       console.log('Browser instance created successfully');
+      
+      // Keep browser alive - handle disconnect
+      browserInstance.on('disconnected', () => {
+        console.log('Browser disconnected, clearing instance...');
+        browserInstance = null;
+      });
+      
     } catch (error) {
       console.error('Failed to launch browser:', error);
+      browserInstance = null;
       throw error;
     }
   }
@@ -352,6 +369,16 @@ app.post('/api/start-session', async (req, res) => {
     // Set viewport
     await page.setViewport({ width: 1280, height: 800 });
     
+    // Prevent page from closing
+    page.on('close', () => {
+      console.log('Page closed unexpectedly');
+    });
+    
+    // Handle target crashed
+    page.on('error', (error) => {
+      console.error('Page error:', error);
+    });
+    
     const sessionId = Date.now().toString();
     const groqClient = initGroqClient(groqApiKey);
     
@@ -387,10 +414,23 @@ app.post('/api/navigate', async (req, res) => {
   }
   
   try {
-    await session.page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    // Check if page is still valid
+    if (session.page.isClosed()) {
+      activeSessions.delete(sessionId);
+      return res.status(400).json({ error: 'Session page was closed. Please start a new session.' });
+    }
+    
+    await session.page.goto(url, { 
+      waitUntil: 'networkidle2', 
+      timeout: 60000 
+    });
     res.json({ success: true, message: 'Navigated successfully' });
   } catch (error) {
     console.error('Navigation error:', error);
+    if (error.message.includes('Target closed') || error.message.includes('Session closed')) {
+      activeSessions.delete(sessionId);
+      return res.status(400).json({ error: 'Session was closed. Please start a new session.' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -408,6 +448,12 @@ app.post('/api/extract-questions', async (req, res) => {
   }
   
   try {
+    // Check if page is still valid
+    if (session.page.isClosed()) {
+      activeSessions.delete(sessionId);
+      return res.status(400).json({ error: 'Session page was closed. Please start a new session.' });
+    }
+    
     const questions = await extractQuizQuestions(session.page);
     session.questions = questions;
     
@@ -423,6 +469,10 @@ app.post('/api/extract-questions', async (req, res) => {
     });
   } catch (error) {
     console.error('Error extracting questions:', error);
+    if (error.message.includes('Target closed') || error.message.includes('Session closed')) {
+      activeSessions.delete(sessionId);
+      return res.status(400).json({ error: 'Session was closed. Please start a new session.' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -440,6 +490,12 @@ app.post('/api/solve-quiz', async (req, res) => {
   }
   
   try {
+    // Check if page is still valid
+    if (session.page.isClosed()) {
+      activeSessions.delete(sessionId);
+      return res.status(400).json({ error: 'Session page was closed. Please start a new session.' });
+    }
+    
     const results = [];
     
     for (const question of session.questions) {
@@ -485,6 +541,10 @@ app.post('/api/solve-quiz', async (req, res) => {
     });
   } catch (error) {
     console.error('Error solving quiz:', error);
+    if (error.message.includes('Target closed') || error.message.includes('Session closed')) {
+      activeSessions.delete(sessionId);
+      return res.status(400).json({ error: 'Session was closed. Please start a new session.' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -502,13 +562,17 @@ app.post('/api/close-session', async (req, res) => {
   }
   
   try {
-    await session.page.close();
+    if (!session.page.isClosed()) {
+      await session.page.close();
+    }
     activeSessions.delete(sessionId);
     console.log(`Session ${sessionId} closed`);
     res.json({ success: true, message: 'Session closed' });
   } catch (error) {
     console.error('Error closing session:', error);
-    res.status(500).json({ error: error.message });
+    // Clean up session anyway
+    activeSessions.delete(sessionId);
+    res.json({ success: true, message: 'Session cleaned up' });
   }
 });
 
