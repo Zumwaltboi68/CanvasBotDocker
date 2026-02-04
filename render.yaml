@@ -1,0 +1,73 @@
+services:
+  - type: web
+    name: canvas-quiz-bot
+    env: docker
+    plan: starter  # Change to 'standard' or 'pro' for better performance
+    region: oregon  # Change to your preferred region
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    
+    # Port configuration
+    # Render only exposes one port publicly, but internal services can communicate
+    # The main PORT is automatically configured by Render
+    
+    # Environment variables
+    envVars:
+      - key: NODE_ENV
+        value: production
+      
+      - key: RENDER
+        value: true
+      
+      - key: PORT
+        sync: false
+        # Render will automatically set this
+      
+      - key: NOVNC_PORT
+        value: 6080
+      
+      - key: VNC_PORT
+        value: 5900
+      
+      - key: DISPLAY
+        value: :99
+    
+    # Auto-deploy settings
+    autoDeploy: true
+    
+    # Scaling (for paid plans)
+    # numInstances: 1
+    
+    # Disk storage (if needed for persistent data)
+    # disk:
+    #   name: canvas-data
+    #   mountPath: /data
+    #   sizeGB: 1
+
+# Alternative configuration for manual Docker builds
+#
+# If you want to build and push to a registry first:
+#
+# 1. Build locally:
+#    docker build -t your-username/canvas-quiz-bot:latest .
+#
+# 2. Push to Docker Hub:
+#    docker push your-username/canvas-quiz-bot:latest
+#
+# 3. Then use this configuration:
+#
+# services:
+#   - type: web
+#     name: canvas-quiz-bot
+#     env: docker
+#     plan: starter
+#     region: oregon
+#     image:
+#       url: docker.io/your-username/canvas-quiz-bot:latest
+#     healthCheckPath: /api/health
+#     envVars:
+#       - key: NODE_ENV
+#         value: production
+#       - key: RENDER
+#         value: true
